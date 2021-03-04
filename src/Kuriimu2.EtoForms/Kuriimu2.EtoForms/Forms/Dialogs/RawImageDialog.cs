@@ -4,18 +4,19 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Eto.Drawing;
 using Eto.Forms;
 using Kanvas.Configuration;
 using Kanvas.Encoding;
-using Kanvas.Encoding.BlockCompressions.ATC.Models;
-using Kanvas.Encoding.BlockCompressions.BCn.Models;
 using Kanvas.Swizzle;
-using Kanvas.Swizzle.Models;
 using Kontract.Kanvas;
+using Kontract.Kanvas.Model;
 using Kontract.Models.IO;
 using Kuriimu2.EtoForms.Extensions;
 using Kuriimu2.EtoForms.Forms.Models;
+using Kuriimu2.EtoForms.Resources;
 using Kuriimu2.EtoForms.Support;
+using Bitmap = Eto.Drawing.Bitmap;
 
 namespace Kuriimu2.EtoForms.Forms.Dialogs
 {
@@ -57,6 +58,7 @@ namespace Kuriimu2.EtoForms.Forms.Dialogs
 
             openFileCommand.Executed += OpenFileCommand_Executed;
             closeFileCommand.Executed += CloseFileCommand_Executed;
+            extractImageCommand.Executed += ExtractImageCommand_Executed;
             processCommand.Executed += ProcessCommand_Executed;
 
             #endregion
@@ -102,7 +104,7 @@ namespace Kuriimu2.EtoForms.Forms.Dialogs
 
                 var totalColors = width * height;
                 if (totalColors % encoding.ColorsPerValue > 0)
-                    throw new InvalidOperationException($"Total pixels does not match with the encoding specification.");
+                    throw new InvalidOperationException("Total pixels does not match with the encoding specification.");
 
                 var bitsPerColor = encoding.BitsPerValue / encoding.ColorsPerValue;
                 var dataLength = totalColors * bitsPerColor / 8;
@@ -115,9 +117,9 @@ namespace Kuriimu2.EtoForms.Forms.Dialogs
 
                 var imageConfiguration = new ImageConfiguration();
                 if (SelectedSwizzleExtension.Name != "None")
-                    imageConfiguration.RemapPixelsWith(size => CreateSwizzle(size, encoding));
+                    imageConfiguration.RemapPixels.With(context => CreateSwizzle(context));
 
-                var transcoder = imageConfiguration.TranscodeWith(size => encoding).Build();
+                var transcoder = imageConfiguration.Transcode.With(encoding).Build();
                 imageView.Image = transcoder.Decode(imgData, new System.Drawing.Size(width, height)).ToEto();
                 imageView.Invalidate();
             }
@@ -165,25 +167,33 @@ namespace Kuriimu2.EtoForms.Forms.Dialogs
             return new List<ExtensionType>
             {
                 new ExtensionType("RGBA8888", true,
-                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RGBA")),
+                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RGBA"),
+                    new ExtensionTypeParameter("ByteOrder", typeof(ByteOrder), ByteOrder.LittleEndian)),
                 new ExtensionType("RGB888", true,
-                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RGB")),
+                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RGB"),
+                    new ExtensionTypeParameter("ByteOrder", typeof(ByteOrder), ByteOrder.LittleEndian)),
                 new ExtensionType("RGB565", true,
-                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RGB")),
+                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RGB"),
+                    new ExtensionTypeParameter("ByteOrder", typeof(ByteOrder), ByteOrder.LittleEndian)),
                 new ExtensionType("RGB555", true,
-                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RGB")),
+                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RGB"),
+                    new ExtensionTypeParameter("ByteOrder", typeof(ByteOrder), ByteOrder.LittleEndian)),
                 new ExtensionType("RGBA5551", true,
-                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RGBA")),
+                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RGBA"),
+                    new ExtensionTypeParameter("ByteOrder", typeof(ByteOrder), ByteOrder.LittleEndian)),
                 new ExtensionType("RGBA4444", true,
-                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RGBA")),
+                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RGBA"),
+                    new ExtensionTypeParameter("ByteOrder", typeof(ByteOrder), ByteOrder.LittleEndian)),
                 new ExtensionType("RG88", true,
-                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RG")),
+                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "RG"),
+                    new ExtensionTypeParameter("ByteOrder", typeof(ByteOrder), ByteOrder.LittleEndian)),
                 new ExtensionType("R8", true),
                 new ExtensionType("G8", true),
                 new ExtensionType("B8", true),
 
                 new ExtensionType("LA88", true,
-                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "LA")),
+                    new ExtensionTypeParameter("ComponentOrder", typeof(string), "LA"),
+                    new ExtensionTypeParameter("ByteOrder", typeof(ByteOrder), ByteOrder.LittleEndian)),
                 new ExtensionType("LA44", true,
                     new ExtensionTypeParameter("ComponentOrder", typeof(string), "LA")),
                 new ExtensionType("L8", true),
@@ -205,7 +215,7 @@ namespace Kuriimu2.EtoForms.Forms.Dialogs
                 new ExtensionType("ATI1L", true),
                 new ExtensionType("ATI1A", true),
                 new ExtensionType("ATI2", true,
-                    new ExtensionTypeParameter("WiiU Variant", typeof(bool), false)),
+                    new ExtensionTypeParameter("Alpha/Luminance", typeof(bool), false)),
 
                 new ExtensionType("ATC", true),
                 new ExtensionType("ATCA", true,
@@ -219,31 +229,38 @@ namespace Kuriimu2.EtoForms.Forms.Dialogs
             {
                 case "RGBA8888":
                     var componentOrder1 = SelectedColorEncodingExtension.GetParameterValue<string>("ComponentOrder");
-                    return new Rgba(8, 8, 8, 8, componentOrder1);
+                    var byteOrder1 = SelectedColorEncodingExtension.GetParameterValue<ByteOrder>("ByteOrder");
+                    return new Rgba(8, 8, 8, 8, componentOrder1, byteOrder1);
 
                 case "RGB888":
                     var componentOrder2 = SelectedColorEncodingExtension.GetParameterValue<string>("ComponentOrder");
-                    return new Rgba(8, 8, 8, componentOrder2);
+                    var byteOrder2 = SelectedColorEncodingExtension.GetParameterValue<ByteOrder>("ByteOrder");
+                    return new Rgba(8, 8, 8, componentOrder2, byteOrder2);
 
                 case "RGB565":
                     var componentOrder3 = SelectedColorEncodingExtension.GetParameterValue<string>("ComponentOrder");
-                    return new Rgba(5, 6, 5, componentOrder3);
+                    var byteOrder3 = SelectedColorEncodingExtension.GetParameterValue<ByteOrder>("ByteOrder");
+                    return new Rgba(5, 6, 5, componentOrder3, byteOrder3);
 
                 case "RGB555":
                     var componentOrder4 = SelectedColorEncodingExtension.GetParameterValue<string>("ComponentOrder");
-                    return new Rgba(5, 5, 5, componentOrder4);
+                    var byteOrder4 = SelectedColorEncodingExtension.GetParameterValue<ByteOrder>("ByteOrder");
+                    return new Rgba(5, 5, 5, componentOrder4, byteOrder4);
 
                 case "RGBA5551":
                     var componentOrder5 = SelectedColorEncodingExtension.GetParameterValue<string>("ComponentOrder");
-                    return new Rgba(5, 5, 5, 1, componentOrder5);
+                    var byteOrder5 = SelectedColorEncodingExtension.GetParameterValue<ByteOrder>("ByteOrder");
+                    return new Rgba(5, 5, 5, 1, componentOrder5, byteOrder5);
 
                 case "RGBA4444":
                     var componentOrder6 = SelectedColorEncodingExtension.GetParameterValue<string>("ComponentOrder");
-                    return new Rgba(4, 4, 4, 4, componentOrder6);
+                    var byteOrder6 = SelectedColorEncodingExtension.GetParameterValue<ByteOrder>("ByteOrder");
+                    return new Rgba(4, 4, 4, 4, componentOrder6, byteOrder6);
 
                 case "RG88":
                     var componentOrder7 = SelectedColorEncodingExtension.GetParameterValue<string>("ComponentOrder");
-                    return new Rgba(8, 8, 0, componentOrder7);
+                    var byteOrder7 = SelectedColorEncodingExtension.GetParameterValue<ByteOrder>("ByteOrder");
+                    return new Rgba(8, 8, 0, componentOrder7, byteOrder7);
 
                 case "R8":
                     return new Rgba(8, 0, 0);
@@ -253,7 +270,8 @@ namespace Kuriimu2.EtoForms.Forms.Dialogs
 
                 case "LA88":
                     var componentOrder8 = SelectedColorEncodingExtension.GetParameterValue<string>("ComponentOrder");
-                    return new La(8, 8, componentOrder8);
+                    var byteOrder8 = SelectedColorEncodingExtension.GetParameterValue<ByteOrder>("ByteOrder");
+                    return new La(8, 8, componentOrder8, byteOrder8);
 
                 case "LA44":
                     var componentOrder9 = SelectedColorEncodingExtension.GetParameterValue<string>("ComponentOrder");
@@ -283,35 +301,35 @@ namespace Kuriimu2.EtoForms.Forms.Dialogs
                     return new Etc1(true, zOrder2);
 
                 case "DXT1":
-                    return new Bc(BcFormat.DXT1);
+                    return new Bc(BcFormat.Dxt1);
 
                 case "DXT3":
-                    return new Bc(BcFormat.DXT3);
+                    return new Bc(BcFormat.Dxt3);
 
                 case "DXT5":
-                    return new Bc(BcFormat.DXT5);
+                    return new Bc(BcFormat.Dxt5);
 
                 case "ATI1":
-                    return new Bc(BcFormat.ATI1);
+                    return new Bc(BcFormat.Ati1);
 
                 case "ATI1L":
-                    return new Bc(BcFormat.ATI1L_WiiU);
+                    return new Bc(BcFormat.Ati1L);
 
                 case "ATI1A":
-                    return new Bc(BcFormat.ATI1A_WiiU);
+                    return new Bc(BcFormat.Ati1A);
 
                 case "ATI2":
-                    var wiiU = SelectedColorEncodingExtension.GetParameterValue<bool>("WiiU Variant");
-                    return wiiU ? new Bc(BcFormat.ATI2) : new Bc(BcFormat.ATI2_WiiU);
+                    var wiiU = SelectedColorEncodingExtension.GetParameterValue<bool>("Alpha/Luminance");
+                    return wiiU ? new Bc(BcFormat.Ati2) : new Bc(BcFormat.Ati2AL);
 
                 case "ATC":
-                    return new Atc(AtcFormat.ATC, ByteOrder.LittleEndian);
+                    return new Atc(AtcFormat.Atc);
 
                 case "ATCA":
                     var atcAlpha = SelectedColorEncodingExtension.GetParameterValue<AtcAlpha>("AlphaMode");
                     return atcAlpha == AtcAlpha.Explicit ?
-                        new Atc(AtcFormat.ATCA_Exp, ByteOrder.LittleEndian) :
-                        new Atc(AtcFormat.ATCA_Int, ByteOrder.LittleEndian);
+                        new Atc(AtcFormat.Atc_Explicit) :
+                        new Atc(AtcFormat.Atc_Interpolated);
 
                 default:
                     return null;
@@ -326,42 +344,51 @@ namespace Kuriimu2.EtoForms.Forms.Dialogs
         {
             return new List<ExtensionType>
             {
-                new ExtensionType("None",true),
-                new ExtensionType("NDS",true),
-                new ExtensionType("3DS",true),
-                new ExtensionType("WiiU",true,
-                    new ExtensionTypeParameter("SwizzleTileMode",typeof(int))),
+                new ExtensionType("None", true),
+                new ExtensionType("NDS", true),
+                new ExtensionType("3DS", true),
+                new ExtensionType("WiiU", true,
+                    new ExtensionTypeParameter("SwizzleTileMode", typeof(int))),
 
-                new ExtensionType("Custom",true,
-                    new ExtensionTypeParameter("BitMapping",typeof(string),"{1,0},{0,1}"))
+                new ExtensionType("Custom", true,
+                    new ExtensionTypeParameter("BitMapping", typeof(string), "{1,0},{0,1}"),
+                    new ExtensionTypeParameter("InitPoint", typeof(string), "{0,0}"),
+                    new ExtensionTypeParameter("YTransform", typeof(string), ""))
             };
         }
 
-        private IImageSwizzle CreateSwizzle(System.Drawing.Size size, IEncodingInfo encoding)
+        private IImageSwizzle CreateSwizzle(SwizzlePreparationContext context)
         {
             switch (SelectedSwizzleExtension.Name)
             {
                 case "NDS":
-                    return new NitroSwizzle(size.Width, size.Height);
+                    return new NitroSwizzle(context);
 
                 case "3DS":
-                    return new CTRSwizzle(size.Width, size.Height, CtrTransformation.None, true);
+                    return new CtrSwizzle(context);
 
                 case "WiiU":
                     var swizzleTileMode = SelectedSwizzleExtension.GetParameterValue<byte>("SwizzleTileMode");
-                    return new CafeSwizzle(swizzleTileMode, encoding.BitsPerValue > 32, encoding.BitDepth, size.Width, size.Height);
+                    return new CafeSwizzle(context, swizzleTileMode);
 
                 case "Custom":
-                    var swizzleText = SelectedSwizzleExtension.GetParameterValue<string>("BitMapping");
-                    var escapedSwizzleText = swizzleText.Replace(" ", "");
+                    var pointSequenceRegex = new Regex(@"\{([\d]+),([\d]+)\}[,]?");
 
-                    var pointStrings = escapedSwizzleText.Substring(1, escapedSwizzleText.Length - 2)
-                        .Split(new[] { "},{" }, StringSplitOptions.None);
-                    var finalPoints = pointStrings.Select(x => x.Split(','))
-                        .Select(x => (int.Parse(x[0]), int.Parse(x[1])));
+                    // Bit mapping
+                    var mappingText = SelectedSwizzleExtension.GetParameterValue<string>("BitMapping").Replace(" ", "");
+                    var mappingPoints = pointSequenceRegex.Matches(mappingText).Select(m => (int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value)));
 
-                    var masterSwizzle = new MasterSwizzle(size.Width, System.Drawing.Point.Empty, finalPoints.ToArray());
-                    return new CustomSwizzle(size.Width, size.Height, masterSwizzle);
+                    // Init point
+                    var initPointText = SelectedSwizzleExtension.GetParameterValue<string>("InitPoint").Replace(" ", "");
+                    var initPointMatch = pointSequenceRegex.Match(initPointText);
+                    var finalInitPoint = new System.Drawing.Point(int.Parse(initPointMatch.Groups[1].Value), int.Parse(initPointMatch.Groups[2].Value));
+
+                    // Y Transform
+                    var transformText = SelectedSwizzleExtension.GetParameterValue<string>("YTransform").Replace(" ", "");
+                    var transformPoints = pointSequenceRegex.Matches(transformText).Select(m => (int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value)));
+
+                    var masterSwizzle = new MasterSwizzle(context.Size.Width, finalInitPoint, mappingPoints.ToArray(), transformPoints.ToArray());
+                    return new CustomSwizzle(context, masterSwizzle);
 
                 default:
                     return null;
@@ -386,6 +413,11 @@ namespace Kuriimu2.EtoForms.Forms.Dialogs
         private void OpenFileCommand_Executed(object sender, EventArgs e)
         {
             OpenFile();
+        }
+
+        private void ExtractImageCommand_Executed(object sender, EventArgs e)
+        {
+            ExtractImage();
         }
 
         private void CloseFileCommand_Executed(object sender, EventArgs e)
@@ -456,8 +488,26 @@ namespace Kuriimu2.EtoForms.Forms.Dialogs
 
             _openedFile = File.OpenRead(ofd.FileName);
             closeFileCommand.Enabled = true;
+            extractImageCommand.Enabled = true;
 
             UpdateImage();
+        }
+
+        private void ExtractImage()
+        {
+            var sfd = new SaveFileDialog
+            {
+                Directory = Settings.Default.LastDirectory == string.Empty ? new Uri(Path.GetFullPath(".")) : new Uri(Settings.Default.LastDirectory),
+                FileName = "extract.png"
+            };
+
+            if (sfd.ShowDialog(this) != DialogResult.Ok)
+            {
+                SetStatus("No file selected.");
+                return;
+            }
+
+            (imageView.Image as Bitmap)?.Save(sfd.FileName, ImageFormat.Png);
         }
 
         private void CloseFile()
@@ -466,6 +516,7 @@ namespace Kuriimu2.EtoForms.Forms.Dialogs
             _openedFile = null;
 
             closeFileCommand.Enabled = false;
+            extractImageCommand.Enabled = false;
 
             imageView.Image = null;
         }
@@ -489,15 +540,14 @@ namespace Kuriimu2.EtoForms.Forms.Dialogs
         private readonly MasterSwizzle _swizzle;
 
         public int Width { get; }
-
         public int Height { get; }
 
-        public CustomSwizzle(int width, int height, MasterSwizzle swizzle)
+        public CustomSwizzle(SwizzlePreparationContext context, MasterSwizzle swizzle)
         {
-            Width = width;
-            Height = height;
-
             _swizzle = swizzle;
+
+            Width = (context.Size.Width + _swizzle.MacroTileWidth - 1) & -_swizzle.MacroTileWidth;
+            Height = (context.Size.Height + _swizzle.MacroTileHeight - 1) & -_swizzle.MacroTileHeight;
         }
 
         public System.Drawing.Point Transform(System.Drawing.Point point) => _swizzle.Get(point.Y * Width + point.X);
