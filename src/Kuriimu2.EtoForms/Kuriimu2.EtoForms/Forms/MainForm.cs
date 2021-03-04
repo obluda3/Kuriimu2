@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Web;
@@ -20,7 +20,6 @@ using Kontract.Models;
 using Kontract.Models.Archive;
 using Kontract.Models.IO;
 using Kore.Extensions;
-using Kore.Managers;
 using Kore.Managers.Plugins;
 using Kore.Models.Update;
 using Kore.Progress;
@@ -34,6 +33,7 @@ using Kuriimu2.EtoForms.Forms.Interfaces;
 using Kuriimu2.EtoForms.Progress;
 using Kuriimu2.EtoForms.Support;
 using Newtonsoft.Json;
+using Serilog;
 
 namespace Kuriimu2.EtoForms.Forms
 {
@@ -119,15 +119,21 @@ namespace Kuriimu2.EtoForms.Forms
             _encryptDialog = new EncryptExtensionsDialog();
             _decompressDialog = new DecompressExtensionDialog();
             _compressDialog = new CompressExtensionDialog();
-            _searcherDialog=new SequenceSearcher();
-            _rawImageDialog=new RawImageDialog();
+            _searcherDialog = new SequenceSearcher();
+            _rawImageDialog = new RawImageDialog();
 
             _localManifest = LoadLocalManifest();
             UpdateFormText();
 
             _progress = new ProgressContext(new ProgressBarExOutput(_progressBarEx, 300));
-            _pluginManager = new PluginManager(_progress, new DialogManagerDialog(this), "plugins");
-            _pluginManager.AllowManualSelection = true;
+            _pluginManager = new PluginManager($"{GetBaseDirectory()}/plugins")
+            {
+                AllowManualSelection = true,
+
+                Progress = _progress,
+                DialogManager = new DialogManagerDialog(this),
+                Logger = new LoggerConfiguration().WriteTo.File($"{GetBaseDirectory()}/Kuriimu2.log").CreateLogger()
+            };
             _pluginManager.OnManualSelection += pluginManager_OnManualSelection;
 
             if (_pluginManager.LoadErrors.Any())
@@ -350,19 +356,20 @@ namespace Kuriimu2.EtoForms.Forms
             foreach (var filter in GetFileFilters(_pluginManager.GetFilePluginLoaders()))
                 ofd.Filters.Add(filter);
 
-            return ofd.ShowDialog(this) == DialogResult.Ok ?
-                ofd.FileName :
-                null;
+            return ofd.ShowDialog(this) == DialogResult.Ok ? ofd.FileName : null;
         }
 
         private IList<FileFilter> GetFileFilters(IPluginLoader<IFilePlugin>[] pluginLoaders)
         {
-            var filters = new List<FileFilter>();
+            var filters = new List<FileFilter>
+            {
+                new FileFilter("All Files", ".*")
+            };
 
             foreach (var plugin in pluginLoaders.SelectMany(x => x.Plugins).Where(x => x.FileExtensions != null))
             {
                 var pluginName = plugin.Metadata?.Name ?? plugin.GetType().Name;
-                filters.Add(new FileFilter(pluginName, plugin.FileExtensions));
+                filters.Add(new FileFilter(pluginName, plugin.FileExtensions.Select(x => x.Replace("*", "")).ToArray()));
             }
 
             return filters;
@@ -574,8 +581,6 @@ namespace Kuriimu2.EtoForms.Forms
             // Iterate through children
             foreach (var child in stateInfo.ArchiveChildren)
                 UpdateChildrenTabs(child);
-
-            UpdateTab(stateInfo, true, false);
         }
 
         #endregion
@@ -712,8 +717,7 @@ namespace Kuriimu2.EtoForms.Forms
             if (!UpdateUtilities.IsUpdateAvailable(remoteManifest, _localManifest))
                 return;
 
-            var result =
-                MessageBox.Show(
+            var result = MessageBox.Show(
                     $"Do you want to update from '{_localManifest.BuildNumber}' to '{remoteManifest.BuildNumber}'?",
                     "Update available", MessageBoxButtons.YesNo);
             if (result == DialogResult.No)
@@ -727,6 +731,18 @@ namespace Kuriimu2.EtoForms.Forms
             process.Start();
 
             Close();
+        }
+
+        private string GetBaseDirectory()
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ||
+                RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                return ".";
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                return "~/Applications/Kuriimu2";
+
+            throw new InvalidOperationException($"Unsupported operating system: {RuntimeInformation.OSDescription}.");
         }
 
         private string GetCurrentPlatform()
@@ -769,18 +785,6 @@ namespace Kuriimu2.EtoForms.Forms
                 var pluginDialog = new ChoosePluginDialog(filePlugins);
                 return pluginDialog.ShowModal(this);
             });
-        }
-
-        private (IKuriimuForm KuriimuForm, IStateInfo StateInfo, Color TabColor) GetSelectedTabEntry()
-        {
-            var selectedTab = tabControl.SelectedPage;
-            if (selectedTab == null)
-                return default;
-
-            if (!_tabDictionary.ContainsKey(selectedTab))
-                return default;
-
-            return _tabDictionary[selectedTab];
         }
 
         #endregion
